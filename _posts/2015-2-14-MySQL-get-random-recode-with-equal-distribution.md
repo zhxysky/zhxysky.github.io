@@ -1,0 +1,319 @@
+---
+layout: post
+title: MySQL随机获取记录id平均分布
+category: MySQL
+tags: [mysql, MySQL Workbeanch]
+---
+
+随机获取记录的方式请查看：[http://zhxysky.com/mysql/2015/02/14/MySQL-get-random-recode.html](MySQL随机获取记录的方法)
+
+为了使随机获取各个id的概率差不多，可以采用映射表方式：
+
+1.新建一个表t，插入几条记录：
+
+	CREATE TABLE `t` (
+	  `id` SERIAL,
+	  `random` varchar(60) DEFAULT NULL,
+	  PRIMARY KEY (`id`)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8;
+
+写一个存储过程插入数据：
+	
+		delimiter $$
+		delete from t;
+		drop procedure if exists init;
+		create procedure init(IN count INT)
+		begin
+		declare i int default 1;
+		loop1: while i <= count do 
+			insert into t values(null,md5(rand()));
+			set i  = i+1;
+		end  while loop1 ;
+		end $$
+		delimiter ;
+
+把以上命令直接贴到命令行：
+
+		mysql> delimiter $$
+		mysql> delete from t;
+		    -> drop procedure if exists init;
+		    -> create procedure init(IN count INT)
+		    -> begin
+		    -> declare i int default 1;
+		    -> loop1: while i <= count do
+		    -> insert into t values(null,md5(rand()));
+		    -> set i  = i+1;
+		    -> end  while loop1 ;
+		    -> end $$
+		Query OK, 0 rows affected (0.00 sec)
+
+		Query OK, 0 rows affected (0.00 sec)
+
+		Query OK, 0 rows affected (0.00 sec)
+
+		mysql> delimiter ;
+		mysql>
+		mysql>
+
+存储过程init有一个参数count，用来表示你要插入几条记录。其中，truncate不仅可以把表中的数据全部删除，而且可以重新定位自增的字段，使id从1开始。concat函数用来连接字符串。
+
+执行过程：
+		
+		mysql> call init(5);
+		Query OK, 1 row affected (0.03 sec)
+
+		mysql> select * from t;
+		+----+----------------------------------+
+		| id | random                           |
+		+----+----------------------------------+
+		|  1 | ab15a38895845460b0be2979e84ca7aa |
+		|  2 | 9119cee81bbe2310ae86b029da743a12 |
+		|  3 | 901a98b3ddfbff06e0e3506cff89dc69 |
+		|  4 | 5a8a4fb71e2862b80411e7c41915e4a8 |
+		|  5 | 0018bcbaefff855215645ef78ba3a73a |
+		+----+----------------------------------+
+		5 rows in set (0.00 sec)
+
+		mysql>
+
+
+2.新建映射表tm，row_id列表示行号，从1开始顺序记录，t_id代表t表的id，把原有的记录id加入映射表。
+
+	create table tm(
+	row_id int not null primary key,
+	t_id int not null 
+	);
+
+然后把t表现有记录插入到tm表。
+
+	mysql> set @id=0;
+	Query OK, 0 rows affected (0.00 sec)
+
+	mysql> insert into tm select @id:= @id+1, id from t;
+	Query OK, 5 rows affected (0.01 sec)
+	Records: 5  Duplicates: 0  Warnings: 0
+
+	mysql> select * from tm;
+	+--------+------+
+	| row_id | t_id |
+	+--------+------+
+	|      1 |    1 |
+	|      2 |    2 |
+	|      3 |    3 |
+	|      4 |    4 |
+	|      5 |    5 |
+	+--------+------+
+	5 rows in set (0.00 sec)
+
+	mysql>
+
+只把现有数据加入tm表还不够，还需要在t表更新的时候同步更新tm表。
+
+（1）t表插入新数据要同步到tm表
+
+	delimiter $$
+	drop trigger if exists insert_sync$$
+	create trigger insert_sync 
+	after insert on t for each row
+	begin
+		declare m int unsigned default 1;
+		select max(row_id)+1 from tm into m;
+		select ifnull(m,1) into m;
+		insert into tm(row_id,t_id) values(m,NEW.id);
+	end $$
+	delimiter ;
+
+
+	mysql> delimiter $$
+	mysql> drop trigger if exists insert_sync$$
+	Query OK, 0 rows affected, 1 warning (0.00 sec)
+
+	mysql> create trigger insert_sync
+	    -> after insert on t for each row
+	    -> begin
+	    -> declare m int unsigned default 1;
+	    -> select max(row_id)+1 from tm into m;
+	    -> select ifnull(m,1) into m;
+	    -> insert into tm(row_id,t_id) values(m,NEW.id);
+	    -> end $$
+	Query OK, 0 rows affected (0.02 sec)
+
+	mysql> delimiter ;
+	mysql> insert into t values(null, md5(rand()));
+	Query OK, 1 row affected (0.01 sec)
+
+	mysql> select * from t;
+	+----+----------------------------------+
+	| id | random                           |
+	+----+----------------------------------+
+	|  1 | ab15a38895845460b0be2979e84ca7aa |
+	|  2 | 9119cee81bbe2310ae86b029da743a12 |
+	|  3 | 901a98b3ddfbff06e0e3506cff89dc69 |
+	|  4 | 5a8a4fb71e2862b80411e7c41915e4a8 |
+	|  5 | 0018bcbaefff855215645ef78ba3a73a |
+	|  6 | 01bed73a87b18624746cb06dfdf54b38 |
+	+----+----------------------------------+
+	6 rows in set (0.00 sec)
+
+	mysql> select * from tm;
+	+--------+------+
+	| row_id | t_id |
+	+--------+------+
+	|      1 |    1 |
+	|      2 |    2 |
+	|      3 |    3 |
+	|      4 |    4 |
+	|      5 |    5 |
+	|      6 |    6 |
+	+--------+------+
+	6 rows in set (0.00 sec)
+
+	mysql>
+
+可以看到插入t表新记录之后，tm表也同步添加了一条记录。
+
+（2）t表删除数据要更新tm表，以保证row_id是按顺序无空隙的。
+
+delimiter $$
+drop trigger if exists delete_sync $$
+create trigger delete_sync
+after delete on t for each row
+begin 
+	
+	select max(row_id)
+	delete from tm where t_id=OLD.id;
+	update tm set row_id=row_id-1 where t_id>OLD.id;
+end $$
+delimiter ;
+
+
+
+mysql> delimiter $$
+mysql> drop trigger if exists delete_sync $$
+
+mysql> create trigger delete_sync
+    -> after delete on t for each row
+    -> begin
+    -> delete from tm where t_id=OLD.id;
+    -> update tm set row_id=row_id-1 where t_id>OLD.id;
+    -> end $$
+Query OK, 0 rows affected (0.02 sec)
+
+mysql> delimiter ;
+mysql>
+mysql> delete from t where id=3;
+Query OK, 1 row affected (0.01 sec)
+
+mysql> select * from t;
++----+----------------------------------+
+| id | random                           |
++----+----------------------------------+
+|  1 | ab15a38895845460b0be2979e84ca7aa |
+|  2 | 9119cee81bbe2310ae86b029da743a12 |
+|  4 | 5a8a4fb71e2862b80411e7c41915e4a8 |
+|  5 | 0018bcbaefff855215645ef78ba3a73a |
+|  6 | 01bed73a87b18624746cb06dfdf54b38 |
++----+----------------------------------+
+5 rows in set (0.00 sec)
+
+mysql> select * from tm;
++--------+------+
+| row_id | t_id |
++--------+------+
+|      1 |    1 |
+|      2 |    2 |
+|      3 |    4 |
+|      4 |    5 |
+|      5 |    6 |
++--------+------+
+5 rows in set (0.00 sec)
+
+mysql>
+可以看到在从t表删除id=3的记录之后，tm表也删除了t_id=3的记录，但是row_id还是保持连续的，并没有中断row_id=3。
+
+delete_sync触发器的逻辑还可以修改一下，不用把所有的记录都移动一遍id，只修改最大记录的id为当前被删除的id即可，当然要加入具体逻辑判断。该部分将在稍后进行修改。
+
+
+
+
+现在我们可以根据tm表的最大row_id产生一个随机的row_id,然后获取对应的t_id,再从t表中根据t_id查找对应的记录，即达到了随机获取一条t表记录的效果。sql如下：
+
+	select * from t join(select tm.row_id,tm.t_id from tm join (select  ceil(rand()*(select max(row_id) from tm)) as id) as temp1 where tm.row_id>temp1.id order by tm.row_id asc limit 1)as temp2 on t.id=temp2.t_id
+
+为了测试效果，我们把数据多添加一些，直接调用init方法即可：
+	
+	mysql> call init(100);
+	Query OK, 1 row affected (0.72 sec)
+
+	然后我们删掉一部分记录，我把t表id从50到60的删除，从90到100的删除。请自行查看tm表的变化。
+
+现在看一下随机获取记录的结果：
+
+	mysql> select * from t join (select ceil(rand()*(select max(id) from t)) as id) as t2 where t.id>= t2.id order by t.id asc limit 1;
+	+----+----------------------------------+------+
+	| id | random                           | id   |
+	+----+----------------------------------+------+
+	| 43 | 8c4047a001d9b0a6e5064054e4e6b9df |   43 |
+	+----+----------------------------------+------+
+	1 row in set (0.00 sec)
+
+	mysql> select * from t join (select ceil(rand()*(select max(id) from t)) as id) as t2 where t.id>= t2.id order by t.id asc limit 1;
+	+----+----------------------------------+------+
+	| id | random                           | id   |
+	+----+----------------------------------+------+
+	| 60 | b690e93552d8a7f96bcca58d3fabcded |   59 |
+	+----+----------------------------------+------+
+	1 row in set (0.00 sec)
+
+	mysql> select * from t join (select ceil(rand()*(select max(id) from t)) as id) as t2 where t.id>= t2.id order by t.id asc limit 1;
+	+----+----------------------------------+------+
+	| id | random                           | id   |
+	+----+----------------------------------+------+
+	| 41 | f26b691d18b002cd663ec39b78d858cb |   41 |
+	+----+----------------------------------+------+
+	1 row in set (0.00 sec)
+
+	mysql> select * from t join (select ceil(rand()*(select max(id) from t)) as id) as t2 where t.id>= t2.id order by t.id asc limit 1;
+	+----+----------------------------------+------+
+	| id | random                           | id   |
+	+----+----------------------------------+------+
+	| 40 | 1f2339e7e041815475e10da7bfec15ed |   24 |
+	+----+----------------------------------+------+
+	1 row in set (0.00 sec)
+
+	mysql> select * from t join (select ceil(rand()*(select max(id) from t)) as id) as t2 where t.id>= t2.id order by t.id asc limit 1;
+	+-----+----------------------------------+------+
+	| id  | random                           | id   |
+	+-----+----------------------------------+------+
+	| 124 | a48ab3ea94f86a6b78e7772c54a17ca5 |  124 |
+	+-----+----------------------------------+------+
+	1 row in set (0.00 sec)
+
+	mysql> select * from t join (select ceil(rand()*(select max(id) from t)) as id) as t2 where t.id>= t2.id order by t.id asc limit 1;
+	+----+----------------------------------+------+
+	| id | random                           | id   |
+	+----+----------------------------------+------+
+	| 42 | c7e5cf4cfab0ec0c550f9a289bd44301 |   42 |
+	+----+----------------------------------+------+
+	1 row in set (0.00 sec)
+	
+	mysql> select * from t join (select ceil(rand()*(select max(id) from t)) as id) as t2 where t.id>= t2.id order by t.id asc limit 1;
+	+-----+----------------------------------+------+
+	| id  | random                           | id   |
+	+-----+----------------------------------+------+
+	| 100 | cb4af42f96156f4f477dce4cd5d66ecc |   92 |
+	+-----+----------------------------------+------+
+	1 row in set (0.00 sec)
+
+	mysql> select * from t join (select ceil(rand()*(select max(id) from t)) as id) as t2 where t.id>= t2.id order by t.id asc limit 1;
+	+----+----------------------------------+------+
+	| id | random                           | id   |
+	+----+----------------------------------+------+
+	| 81 | a5c02b5f375bd49a01dd1f55e5acdda8 |   81 |
+	+----+----------------------------------+------+
+
+
+可以看到并没有增加t表有间断id的获取概率。
+
+参考文章链接：[http://jan.kneschke.de/projects/mysql/order-by-rand/](http://jan.kneschke.de/projects/mysql/order-by-rand/)
+
