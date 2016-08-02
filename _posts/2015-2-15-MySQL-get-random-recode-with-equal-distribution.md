@@ -5,7 +5,7 @@ category: MySQL
 tags: [mysql, MySQL Workbeanch]
 ---
 
-随机获取记录的方式请查看：[http://zhxysky.com/mysql/2015/02/14/MySQL-get-random-recode.html](MySQL随机获取记录的方法)
+随机获取记录的方式请查看：[MySQL随机获取记录的方法](http://zhxysky.com/mysql/2015/02/14/MySQL-get-random-recode.html)
 
 为了使随机获取各个id的概率差不多，可以采用映射表方式：
 
