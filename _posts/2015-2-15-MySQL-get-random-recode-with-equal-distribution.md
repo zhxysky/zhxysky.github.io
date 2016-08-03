@@ -172,7 +172,75 @@ tags: [mysql, MySQL Workbeanch]
 
 可以看到插入t表新记录之后，tm表也同步添加了一条记录。
 
-（2）t表删除数据要更新tm表，以保证row_id是按顺序无空隙的。
+（2）t表更新记录id之后，修改对应的tm表的t_id。
+
+	delimiter $$
+	drop trigger if exists update_sync$$
+	create trigger update_sync
+	after update on t  for each row
+	begin
+		update tm set t_id=NEW.id where t_id=OLD.id;
+	end$$
+	delimiter ;
+
+执行上述代码：
+	
+	mysql> delimiter $$
+	mysql> drop trigger if exists update_sync$$
+	Query OK, 0 rows affected, 1 warning (0.00 sec)
+
+	mysql> create trigger update_sync
+	    -> after update on t  for each row
+	    -> begin
+	    -> update tm set t_id=NEW.id where t_id=OLD.id;
+	    -> end$$
+	Query OK, 0 rows affected (0.04 sec)
+
+	mysql> delimiter ;
+	mysql>
+
+首先查看tm表记录：
+	
+	mysql> select * from tm;
+	+--------+------+
+	| row_id | t_id |
+	+--------+------+
+	|      1 |   39 |
+	|      2 |   41 |
+	|      3 |   42 |
+	|      4 |   43 |
+	|      5 |   44 |
+	...
+	...
+
+现在我们把t表id=41的记录改成id=40,并查看tm表结果：
+
+	mysql> update t set id=40 where id=41;
+	Query OK, 1 row affected (0.01 sec)
+	Rows matched: 1  Changed: 1  Warnings: 0
+
+	mysql> select * from t;
+	+-----+----------------------------------+
+	| id  | random                           |
+	+-----+----------------------------------+
+	|  39 | 1f2339e7e041815475e10da7bfec15ed |
+	|  40 | f26b691d18b002cd663ec39b78d858cb |
+	|  42 | c7e5cf4cfab0ec0c550f9a289bd44301 |
+	|  43 | 8c4047a001d9b0a6e5064054e4e6b9df |
+
+	mysql> select * from tm;
+	+--------+------+
+	| row_id | t_id |
+	+--------+------+
+	|      1 |   39 |
+	|      2 |   40 |
+	|      3 |   42 |
+	|      4 |   43 |
+	|      5 |   44 |
+
+可以看到触发器已生效。
+
+（3）t表删除数据要更新tm表，以保证row_id是按顺序无空隙的。
 
 	delimiter $$
 	drop trigger if exists delete_sync $$
@@ -186,7 +254,7 @@ tags: [mysql, MySQL Workbeanch]
 	end $$
 	delimiter ;
 
-
+把以上命令直接贴到命令行：
 
 	mysql> delimiter $$
 	mysql> drop trigger if exists delete_sync $$
@@ -201,6 +269,9 @@ tags: [mysql, MySQL Workbeanch]
 
 	mysql> delimiter ;
 	mysql>
+
+然后删除一条记录，查看结果：
+
 	mysql> delete from t where id=3;
 	Query OK, 1 row affected (0.01 sec)
 
@@ -229,12 +300,150 @@ tags: [mysql, MySQL Workbeanch]
 	5 rows in set (0.00 sec)
 
 	mysql>
-	
+
 可以看到在从t表删除id=3的记录之后，tm表也删除了t_id=3的记录，但是row_id还是保持连续的，并没有中断row_id=3。
 
-delete_sync触发器的逻辑还可以修改一下，不用把所有的记录都移动一遍id，只修改最大记录的id为当前被删除的id即可，当然要加入具体逻辑判断。该部分将在稍后进行修改。
+delete_sync触发器的逻辑还可以修改一下，不用把所有的记录都移动一遍id，只修改最大记录的id为当前被删除的id即可，当然要加入具体逻辑判断。现在我们把触发器修改一下：
 
+	delimiter $$
+	drop trigger if exists delete_sync;
+	create trigger delete_sync
+	after delete on t for each row
+	begin
+		declare rid int default 0;
+		declare maxid int default 0;
+		select row_id from tm  where t_id=OLD.id into rid;
+		select max(row_id) from tm into maxid;
+		if rid = maxid then
+			delete from tm where row_id=rid;
+		else 
+			delete from tm where t_id = OLD.id;
+			update tm set row_id = rid where row_id = maxid;
+		end if;
 
+	end $$
+	delimiter ;
+
+执行以上代码：
+
+	mysql> delimiter $$
+	mysql> drop trigger if exists delete_sync;
+	    -> create trigger delete_sync
+	    -> after delete on t for each row
+	    -> begin
+	    -> declare rid int default 0;
+	    -> declare maxid int default 0;
+	    -> select row_id from tm  where t_id=OLD.id into rid;
+	    -> select max(row_id) from tm into maxid;
+	    -> if rid = maxid then
+	    -> delete from tm where row_id=rid;
+	    -> else
+	    -> delete from tm where t_id = OLD.id;
+	    -> update tm set row_id = rid where row_id = maxid;
+	    -> end if;
+	    ->
+	    -> end $$
+	Query OK, 0 rows affected, 1 warning (0.00 sec)
+
+	Query OK, 0 rows affected (0.02 sec)
+
+	mysql> delimiter ;
+	mysql>
+
+我重新添加了数据到t表，现在我们查看一下表的现状：
+	
+	mysql> delete from t;
+	Query OK, 62 rows affected (0.02 sec)
+
+	mysql> select * from tm;
+	Empty set (0.00 sec)
+
+	mysql> call init(5);
+	Query OK, 1 row affected (0.03 sec)
+
+	mysql> select * from t;
+	+-----+----------------------------------+
+	| id  | random                           |
+	+-----+----------------------------------+
+	| 127 | daf28686a09f5ee8ce2cf5ce58b12432 |
+	| 128 | 7edcf63b20c63cef3beb288e7aff99cf |
+	| 129 | 1e23dcfaf2e546c12dd9f8137ce4b6e4 |
+	| 130 | cde3ed2538f8799d4ba9dc87deea8a88 |
+	| 131 | 07ebf2775f4d6d5d3378a046fe94622b |
+	+-----+----------------------------------+
+	5 rows in set (0.00 sec)
+
+	mysql> select * from tm;
+	+--------+------+
+	| row_id | t_id |
+	+--------+------+
+	|      1 |  127 |
+	|      2 |  128 |
+	|      3 |  129 |
+	|      4 |  130 |
+	|      5 |  131 |
+	+--------+------+
+	5 rows in set (0.00 sec)
+
+	mysql>
+
+我们先删除t表id为128的记录，然后查看结果：
+	
+	mysql> delete from t where id=128;
+	Query OK, 1 row affected (0.01 sec)
+
+	mysql> select * from t;
+	+-----+----------------------------------+
+	| id  | random                           |
+	+-----+----------------------------------+
+	| 127 | daf28686a09f5ee8ce2cf5ce58b12432 |
+	| 129 | 1e23dcfaf2e546c12dd9f8137ce4b6e4 |
+	| 130 | cde3ed2538f8799d4ba9dc87deea8a88 |
+	| 131 | 07ebf2775f4d6d5d3378a046fe94622b |
+	+-----+----------------------------------+
+	4 rows in set (0.00 sec)
+
+	mysql> select * from tm;
+	+--------+------+
+	| row_id | t_id |
+	+--------+------+
+	|      1 |  127 |
+	|      2 |  131 |
+	|      3 |  129 |
+	|      4 |  130 |
+	+--------+------+
+	4 rows in set (0.00 sec)
+
+	mysql>
+
+可以看到tm表row_id最大的一个记录row_id=5现在变成了row_id=2,其他的记录都没有变化。然后再删除t表id=130的记录，因为该记录在tm表是row_id最大的记录。
+	
+	mysql> delete from t where id=130;
+	Query OK, 1 row affected (0.01 sec)
+
+	mysql> select * from t;
+	+-----+----------------------------------+
+	| id  | random                           |
+	+-----+----------------------------------+
+	| 127 | daf28686a09f5ee8ce2cf5ce58b12432 |
+	| 129 | 1e23dcfaf2e546c12dd9f8137ce4b6e4 |
+	| 131 | 07ebf2775f4d6d5d3378a046fe94622b |
+	+-----+----------------------------------+
+	3 rows in set (0.00 sec)
+
+	mysql> select * from tm;
+	+--------+------+
+	| row_id | t_id |
+	+--------+------+
+	|      1 |  127 |
+	|      2 |  131 |
+	|      3 |  129 |
+	+--------+------+
+	3 rows in set (0.00 sec)
+
+	mysql>
+
+删除row_id最大值对应的记录，不用更新其他记录。
 
 
 现在我们可以根据tm表的最大row_id产生一个随机的row_id,然后获取对应的t_id,再从t表中根据t_id查找对应的记录，即达到了随机获取一条t表记录的效果。sql如下：
@@ -315,6 +524,8 @@ delete_sync触发器的逻辑还可以修改一下，不用把所有的记录都
 
 
 可以看到并没有增加t表有间断id的获取概率。
+
+整篇文章使用的表中的数据前后可能不太一直，请根据自己表的数据查看。
 
 参考文章链接：[http://jan.kneschke.de/projects/mysql/order-by-rand/](http://jan.kneschke.de/projects/mysql/order-by-rand/)
 
