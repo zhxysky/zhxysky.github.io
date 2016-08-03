@@ -50,7 +50,7 @@ ceil(x) 和ceiling(x) ： 小数部分有值就进一，向上去整。
 如果我们想获取多条记录，可以把limt 1改成limt n，但是这样获取的多条记录都是连续的，如果想获取不连续的多条记录，可以结合程序执行多次sql语句；或者根据程序使用max(id)生成多个随机的id，然后直接根据id获取记录。
 
 上面的获取多条记录的方法一般情况下是可以满足我们的需要的。有些情况下，比如id不是连续的，而是中间空缺好多个，比如有id 1，3，5，9，那么产生的随机数6，7，8都会使我们获取到id=9的记录，这样就增大了获取到id=9的记录的概率。如果想要使获取每条记录的概率平均分布，可是使用一个映射表。
-具体请查看另外一篇文章：[http://zhxysky.com/mysql/2015/02/14/MySQL-get-random-recode-with-equal-distribution.html](http://zhxysky.com/mysql/2015/02/14/MySQL-get-random-recode-with-equal-distribution.html)
+具体请查看另外一篇文章：[MySQL随机获取记录id平均分布](http://zhxysky.com/mysql/2015/02/14/MySQL-get-random-recode-with-equal-distribution.html)
 
 
 

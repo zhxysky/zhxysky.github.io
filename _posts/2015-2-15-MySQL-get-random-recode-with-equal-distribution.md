@@ -174,61 +174,62 @@ tags: [mysql, MySQL Workbeanch]
 
 （2）t表删除数据要更新tm表，以保证row_id是按顺序无空隙的。
 
-delimiter $$
-drop trigger if exists delete_sync $$
-create trigger delete_sync
-after delete on t for each row
-begin 
+	delimiter $$
+	drop trigger if exists delete_sync $$
+	create trigger delete_sync
+	after delete on t for each row
+	begin 
+		
+		select max(row_id)
+		delete from tm where t_id=OLD.id;
+		update tm set row_id=row_id-1 where t_id>OLD.id;
+	end $$
+	delimiter ;
+
+
+
+	mysql> delimiter $$
+	mysql> drop trigger if exists delete_sync $$
+
+	mysql> create trigger delete_sync
+	    -> after delete on t for each row
+	    -> begin
+	    -> delete from tm where t_id=OLD.id;
+	    -> update tm set row_id=row_id-1 where t_id>OLD.id;
+	    -> end $$
+	Query OK, 0 rows affected (0.02 sec)
+
+	mysql> delimiter ;
+	mysql>
+	mysql> delete from t where id=3;
+	Query OK, 1 row affected (0.01 sec)
+
+	mysql> select * from t;
+	+----+----------------------------------+
+	| id | random                           |
+	+----+----------------------------------+
+	|  1 | ab15a38895845460b0be2979e84ca7aa |
+	|  2 | 9119cee81bbe2310ae86b029da743a12 |
+	|  4 | 5a8a4fb71e2862b80411e7c41915e4a8 |
+	|  5 | 0018bcbaefff855215645ef78ba3a73a |
+	|  6 | 01bed73a87b18624746cb06dfdf54b38 |
+	+----+----------------------------------+
+	5 rows in set (0.00 sec)
+
+	mysql> select * from tm;
+	+--------+------+
+	| row_id | t_id |
+	+--------+------+
+	|      1 |    1 |
+	|      2 |    2 |
+	|      3 |    4 |
+	|      4 |    5 |
+	|      5 |    6 |
+	+--------+------+
+	5 rows in set (0.00 sec)
+
+	mysql>
 	
-	select max(row_id)
-	delete from tm where t_id=OLD.id;
-	update tm set row_id=row_id-1 where t_id>OLD.id;
-end $$
-delimiter ;
-
-
-
-mysql> delimiter $$
-mysql> drop trigger if exists delete_sync $$
-
-mysql> create trigger delete_sync
-    -> after delete on t for each row
-    -> begin
-    -> delete from tm where t_id=OLD.id;
-    -> update tm set row_id=row_id-1 where t_id>OLD.id;
-    -> end $$
-Query OK, 0 rows affected (0.02 sec)
-
-mysql> delimiter ;
-mysql>
-mysql> delete from t where id=3;
-Query OK, 1 row affected (0.01 sec)
-
-mysql> select * from t;
-+----+----------------------------------+
-| id | random                           |
-+----+----------------------------------+
-|  1 | ab15a38895845460b0be2979e84ca7aa |
-|  2 | 9119cee81bbe2310ae86b029da743a12 |
-|  4 | 5a8a4fb71e2862b80411e7c41915e4a8 |
-|  5 | 0018bcbaefff855215645ef78ba3a73a |
-|  6 | 01bed73a87b18624746cb06dfdf54b38 |
-+----+----------------------------------+
-5 rows in set (0.00 sec)
-
-mysql> select * from tm;
-+--------+------+
-| row_id | t_id |
-+--------+------+
-|      1 |    1 |
-|      2 |    2 |
-|      3 |    4 |
-|      4 |    5 |
-|      5 |    6 |
-+--------+------+
-5 rows in set (0.00 sec)
-
-mysql>
 可以看到在从t表删除id=3的记录之后，tm表也删除了t_id=3的记录，但是row_id还是保持连续的，并没有中断row_id=3。
 
 delete_sync触发器的逻辑还可以修改一下，不用把所有的记录都移动一遍id，只修改最大记录的id为当前被删除的id即可，当然要加入具体逻辑判断。该部分将在稍后进行修改。
