@@ -301,9 +301,7 @@ tags: [mysql, MySQL Workbeanch]
 
 	mysql>
 
-可以看到在从t表删除id=3的记录之后，tm表也删除了t_id=3的记录，但是row_id还是保持连续的，并没有中断row_id=3。
-
-delete_sync触发器的逻辑还可以修改一下，不用把所有的记录都移动一遍id，只修改最大记录的id为当前被删除的id即可，当然要加入具体逻辑判断。现在我们把触发器修改一下：
+可以看到在从t表删除id=3的记录之后，tm表也删除了t_id=3的记录，但是row_id还是保持连续的，并没有中断row_id=3，这是因为tm从被删除的记录开始往后，所有的记录row_id都往前移动了一个。这种情况下，如果数据量特别大的话，肯定会有效率问题。我们可以修改一下delete_sync触发器的逻辑，不用把所有的记录都移动一遍row_id，只修改max(row_id)对应的记录的row_id为当前被删除的记录的row_ id即可，而如果被删除的是tm表max(row_id)对应的记录，则不用做其他更新操作。现在我们把触发器修改一下：
 
 	delimiter $$
 	drop trigger if exists delete_sync;
