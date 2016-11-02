@@ -12,7 +12,7 @@ tags: [docker]
 	Docker version 1.12.1, build 23cf638
 
 
-想使用docker部署一个最简单的springboot应用。[应用代码点击此处](http://www.baidu.com)
+想使用docker部署一个最简单的springboot应用。[应用代码点击此处](https://github.com/zhxysky/docker-demo-spring-boot)
 
 首先，在应用根目录下添加Dockerfile文件，内容如下：
 
