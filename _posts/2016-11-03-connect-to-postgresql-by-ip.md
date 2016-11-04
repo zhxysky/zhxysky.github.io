@@ -26,7 +26,7 @@ tags: [postgresql]
 修改配置如下：
 
 
-	打开C:\Program Files\PostgreSQL\9.6\data\pg_dba.conf，找到
+	打开C:\Program Files\PostgreSQL\9.6\data\pg_hba.conf，找到
 
 	# IPv4 local connections:
 	host    all             all             127.0.0.1/32            md5
